@@ -2,6 +2,7 @@ import os
 import asyncio
 import logging
 import uuid
+import glob
 from fastapi import FastAPI, BackgroundTasks, Form, HTTPException, File, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -11,84 +12,107 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Baixador Ministério Voz da Cura")
-
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads_temp")
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 os.makedirs(os.path.join(BASE_DIR, "static"), exist_ok=True)
 
-def clean_file(filepath: str):
-    try:
-        if filepath and os.path.exists(filepath):
-            os.remove(filepath)
-    except Exception as e:
-        logger.error(f"Erro ao deletar {filepath}: {e}")
+def clean_files(*paths):
+    for p in paths:
+        if p and os.path.exists(p):
+            try:
+                os.remove(p)
+            except Exception:
+                pass
 
-def clean_files(filepath: str, cookies_path: str = None):
-    clean_file(filepath)
-    if cookies_path:
-        clean_file(cookies_path)
+def find_downloaded_file(session_id: str):
+    patterns = [
+        os.path.join(DOWNLOAD_DIR, f"{session_id}.*"),
+        os.path.join(DOWNLOAD_DIR, f"{session_id}_*.*"),
+    ]
+    for pattern in patterns:
+        files = glob.glob(pattern)
+        if files:
+            return files[0]
+    return None
 
-def run_download(url: str, mode: str, cookies_path: str = None) -> str:
-    unique_id = str(uuid.uuid4())[:8]
-    outtmpl = os.path.join(DOWNLOAD_DIR, f"{unique_id}_%(title)s.%(ext)s")
-    is_youtube = "youtube.com" in url or "youtu.be" in url
+def run_download(url: str, mode: str, session_id: str, cookie_path: str = None):
+    output_template = os.path.join(DOWNLOAD_DIR, f"{session_id}.%(ext)s")
+
+    http_headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Referer": "https://www.youtube.com/",
+        "Origin": "https://www.youtube.com",
+    }
+
+    base_opts = {
+        "outtmpl": output_template,
+        "quiet": False,
+        "no_warnings": False,
+        "noplaylist": True,
+        "http_headers": http_headers,
+        "retries": 5,
+        "fragment_retries": 5,
+        "extractor_retries": 3,
+        "sleep_interval": 2,
+        "max_sleep_interval": 5,
+        "sleep_interval_requests": 1,
+    }
+
+    if cookie_path:
+        base_opts["cookiefile"] = cookie_path
 
     if mode == "audio":
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'outtmpl': outtmpl,
-            'noplaylist': True,
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
+        base_opts.update({
+            "format": "bestaudio/best",
+            "postprocessors": [{
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "192",
             }],
-        }
+        })
     else:
-        ydl_opts = {
-            'format': 'bestvideo[vcodec*=avc]+bestaudio[acodec*=m4a]/bestvideo[vcodec*=avc]+bestaudio/best',
-            'outtmpl': outtmpl,
-            'noplaylist': True,
-            'merge_output_format': 'mp4',
-        }
+        base_opts.update({
+            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "merge_output_format": "mp4",
+        })
 
-    if is_youtube:
-        # Tenta varios player_clients em sequencia ate um funcionar
-        # tv_embedded e mweb sao menos bloqueados em servidores
-        ydl_opts['extractor_args'] = {
-            'youtube': {
-                'player_client': ['tv_embedded', 'ios', 'web_embedded'],
-            }
-        }
+    # Try multiple client strategies in order
+    client_strategies = [
+        {"extractor_args": {"youtube": {"player_client": ["tv_embedded"]}}},
+        {"extractor_args": {"youtube": {"player_client": ["ios"]}}},
+        {"extractor_args": {"youtube": {"player_client": ["web_embedded"]}}},
+        {"extractor_args": {"youtube": {"player_client": ["mweb"]}}},
+        {},  # default client as last resort
+    ]
 
-    if cookies_path and os.path.exists(cookies_path):
-        ydl_opts['cookiefile'] = cookies_path
-        logger.info(f"Usando cookies: {cookies_path}")
+    last_error = None
+    for strategy in client_strategies:
+        opts = {**base_opts, **strategy}
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                ydl.download([url])
+            # Check if file was actually created
+            result = find_downloaded_file(session_id)
+            if result:
+                logger.info(f"Download OK with strategy: {strategy}")
+                return result
+        except yt_dlp.utils.DownloadError as e:
+            last_error = str(e)
+            logger.warning(f"Strategy {strategy} failed: {last_error[:200]}")
+            # Clean up any partial files
+            for f in glob.glob(os.path.join(DOWNLOAD_DIR, f"{session_id}*")):
+                try: os.remove(f)
+                except: pass
+            continue
+        except Exception as e:
+            last_error = str(e)
+            logger.error(f"Unexpected error with strategy {strategy}: {last_error}")
+            continue
 
-    logger.info(f"Iniciando download: {url} modo: {mode}")
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info)
-            if mode == "audio":
-                filename = os.path.splitext(filename)[0] + ".mp3"
-            else:
-                if not os.path.exists(filename):
-                    mp4_filename = os.path.splitext(filename)[0] + ".mp4"
-                    if os.path.exists(mp4_filename):
-                        filename = mp4_filename
-            return filename
-    except Exception as e:
-        error_msg = str(e)
-        logger.error(f"Erro yt-dlp: {error_msg}")
-        if is_youtube and ("Sign in" in error_msg or "bot" in error_msg.lower() or "confirm" in error_msg.lower()):
-            raise Exception(
-                "⚠️ O YouTube bloqueou este download. "
-                "Por favor, abra as 'Configurações Avançadas' e envie um arquivo cookies.txt "
-                "do seu navegador (extensão 'Get Cookies.txt LOCALLY' no Chrome/Edge)."
-            )
-        raise
+    raise Exception(last_error or "Todos os clientes falharam ao baixar o vídeo.")
 
 @app.post("/api/download")
 async def api_download(
@@ -97,53 +121,47 @@ async def api_download(
     mode: str = Form(...),
     cookies: UploadFile = File(None)
 ):
-    if mode not in ["video", "audio"]:
-        raise HTTPException(status_code=400, detail="Modo inválido.")
+    if not url or not url.startswith("http"):
+        raise HTTPException(status_code=400, detail="URL inválida.")
 
-    cookies_path = None
+    session_id = str(uuid.uuid4())
+    cookie_path = None
+
     if cookies and cookies.filename:
-        cookies_id = str(uuid.uuid4())[:8]
-        cookies_path = os.path.join(DOWNLOAD_DIR, f"{cookies_id}_cookies.txt")
-        try:
-            content = await cookies.read()
-            if content:
-                with open(cookies_path, "wb") as f:
-                    f.write(content)
-                logger.info(f"Cookies guardados: {cookies_path}")
-            else:
-                cookies_path = None
-        except Exception as e:
-            logger.error(f"Erro ao guardar cookies: {e}")
-            cookies_path = None
+        cookie_path = os.path.join(DOWNLOAD_DIR, f"{session_id}_cookies.txt")
+        content = await cookies.read()
+        with open(cookie_path, "wb") as f:
+            f.write(content)
 
     try:
-        filepath = await asyncio.to_thread(run_download, url, mode, cookies_path)
-        if not os.path.exists(filepath):
-            if cookies_path:
-                clean_file(cookies_path)
-            raise HTTPException(status_code=500, detail="Arquivo não encontrado após download.")
-
-        file_size_mb = os.path.getsize(filepath) / (1024 * 1024)
-        logger.info(f"Download OK. Tamanho: {file_size_mb:.2f} MB")
-
-        display_name = os.path.basename(filepath)
-        if "_" in display_name:
-            display_name = display_name.split("_", 1)[1]
-
-        background_tasks.add_task(clean_files, filepath, cookies_path)
-        return FileResponse(
-            path=filepath,
-            filename=display_name,
-            media_type="application/octet-stream"
+        loop = asyncio.get_event_loop()
+        file_path = await loop.run_in_executor(
+            None, run_download, url, mode, session_id, cookie_path
         )
     except Exception as e:
-        logger.error(f"Erro no download: {e}")
-        if cookies_path:
-            clean_file(cookies_path)
-        return JSONResponse(
-            status_code=500,
-            content={"detail": f"O download falhou. Verifique o link e tente novamente. Detalhes: {str(e)}"}
-        )
+        error_msg = str(e)
+        if cookie_path:
+            background_tasks.add_task(clean_files, cookie_path)
+        logger.error(f"Download failed: {error_msg}")
+
+        detail = "O download falhou. Verifique o link e tente novamente."
+        if "bot" in error_msg.lower() or "sign in" in error_msg.lower() or "confirm" in error_msg.lower():
+            detail += " ⚠️ O YouTube bloqueou este download. Por favor, abra as 'Configurações Avançadas' e envie um arquivo cookies.txt do seu navegador (extensão 'Get Cookies.txt LOCALLY' no Chrome/Edge)."
+        elif "copyright" in error_msg.lower():
+            detail += " Este vídeo está bloqueado por direitos autorais."
+        elif "private" in error_msg.lower():
+            detail += " Este vídeo é privado."
+
+        raise HTTPException(status_code=500, detail=detail)
+
+    filename = os.path.basename(file_path)
+    background_tasks.add_task(clean_files, file_path, cookie_path)
+
+    return FileResponse(
+        path=file_path,
+        filename=filename,
+        media_type="application/octet-stream"
+    )
 
 app.mount("/", StaticFiles(directory=os.path.join(BASE_DIR, "static"), html=True), name="static")
 
