@@ -12,14 +12,11 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Baixador Ministério Voz da Cura")
 
-# Cria pastas necessárias
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads_temp")
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 os.makedirs(os.path.join(BASE_DIR, "static"), exist_ok=True)
 
-# Tenta encontrar o FFmpeg em caminhos comuns (Windows local)
-# No Docker/Linux, o ffmpeg já está no PATH via apt-get, então não precisa de caminho
 FFMPEG_SEARCH_PATHS = [
     r"C:\Users\Utilizador\BaixadorUniversal",
     r"C:\ffmpeg\bin",
@@ -29,24 +26,6 @@ def get_ffmpeg_location():
     for path in FFMPEG_SEARCH_PATHS:
         if os.path.exists(path):
             return path
-    return None  # Usa o ffmpeg do PATH do sistema (Docker/Linux)
-
-def get_deno_path():
-    """Encontra o Deno para usar como JS runtime do yt-dlp."""
-    deno_paths = [
-        os.path.expanduser("~/.deno/bin/deno"),        # Linux/Docker
-        os.path.expanduser("~/.deno/bin/deno.exe"),    # Windows
-        r"C:\Users\Utilizador\.deno\bin\deno.exe",     # Windows específico
-        "/root/.deno/bin/deno",                         # Docker root
-    ]
-    for p in deno_paths:
-        if os.path.exists(p):
-            return p
-    # Tenta encontrar no PATH do sistema
-    import shutil
-    deno_in_path = shutil.which("deno")
-    if deno_in_path:
-        return deno_in_path
     return None
 
 def clean_file(filepath: str):
@@ -70,7 +49,7 @@ def run_download(url: str, mode: str, cookies_path: str = None) -> str:
 
     if mode == "audio":
         ydl_opts = {
-            'format': 'bestaudio[language*=pt]/bestaudio',
+            'format': 'bestaudio/best',
             'outtmpl': outtmpl,
             'noplaylist': True,
             'postprocessors': [{
@@ -79,26 +58,23 @@ def run_download(url: str, mode: str, cookies_path: str = None) -> str:
                 'preferredquality': '192',
             }],
         }
-    else:  # video
+    else:
         ydl_opts = {
-            'format': 'bestvideo[vcodec*=avc]+bestaudio[acodec*=m4a]/bestvideo[vcodec*=avc]+bestaudio/best[vcodec*=avc]/best',
+            'format': 'bestvideo[vcodec*=avc]+bestaudio[acodec*=m4a]/bestvideo[vcodec*=avc]+bestaudio/best',
             'outtmpl': outtmpl,
             'noplaylist': True,
             'merge_output_format': 'mp4',
         }
 
-    # Simula um navegador real para reduzir bloqueio de bot
     ydl_opts['http_headers'] = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        'User-Agent': 'com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip',
         'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
     }
 
-    # Configurações específicas para YouTube - usa cliente Android para evitar bot detection
     if is_youtube:
         ydl_opts['extractor_args'] = {
             'youtube': {
-                'player_client': ['android', 'web', 'default'],
-                'player_skip': ['webpage', 'configs'],
+                'player_client': ['android', 'web'],
             }
         }
         ydl_opts['sleep_interval'] = 1
@@ -111,14 +87,6 @@ def run_download(url: str, mode: str, cookies_path: str = None) -> str:
     if cookies_path:
         ydl_opts['cookiefile'] = cookies_path
         logger.info(f"Usando arquivo de cookies: {cookies_path}")
-
-    # Configura o Deno como JS runtime (essencial para extração do YouTube)
-    deno_path = get_deno_path()
-    if deno_path:
-        ydl_opts['js_runtimes'] = f"deno:{deno_path}"
-        logger.info(f"Usando Deno JS runtime em: {deno_path}")
-    else:
-        logger.warning("Deno não encontrado. Downloads do YouTube podem falhar.")
 
     logger.info(f"Iniciando download para url: {url} em modo: {mode}")
     try:
@@ -139,8 +107,7 @@ def run_download(url: str, mode: str, cookies_path: str = None) -> str:
             raise Exception(
                 "⚠️ O YouTube bloqueou este download porque detectou um acesso automatizado. "
                 "Para resolver, abra as 'Configurações Avançadas' e envie um arquivo cookies.txt "
-                "do seu navegador (use a extensão 'Get Cookies.txt LOCALLY' no Chrome/Edge). "
-                "Isto é necessário para vídeos do YouTube."
+                "do seu navegador (use a extensão 'Get Cookies.txt LOCALLY' no Chrome/Edge)."
             )
         raise
 
@@ -163,7 +130,7 @@ async def api_download(
             if content:
                 with open(cookies_path, "wb") as f:
                     f.write(content)
-                logger.info(f"Arquivo de cookies salvo temporariamente em: {cookies_path}")
+                logger.info(f"Arquivo de cookies salvo: {cookies_path}")
             else:
                 cookies_path = None
         except Exception as e:
@@ -173,13 +140,12 @@ async def api_download(
     try:
         filepath = await asyncio.to_thread(run_download, url, mode, cookies_path)
         if not os.path.exists(filepath):
-            logger.error("Arquivo baixado não foi encontrado no disco.")
             if cookies_path:
                 clean_file(cookies_path)
             raise HTTPException(status_code=500, detail="Erro ao localizar o arquivo baixado.")
 
         file_size_mb = os.path.getsize(filepath) / (1024 * 1024)
-        logger.info(f"Download concluído com sucesso. Tamanho: {file_size_mb:.2f} MB")
+        logger.info(f"Download concluído. Tamanho: {file_size_mb:.2f} MB")
 
         display_name = os.path.basename(filepath)
         if "_" in display_name:
@@ -200,7 +166,6 @@ async def api_download(
             content={"detail": f"O download falhou. Verifique o link e tente novamente. Detalhes: {str(e)}"}
         )
 
-# Serve os arquivos estáticos (HTML/CSS/JS)
 app.mount("/", StaticFiles(directory=os.path.join(BASE_DIR, "static"), html=True), name="static")
 
 if __name__ == "__main__":
