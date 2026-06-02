@@ -25,12 +25,10 @@ app.mount("/static", StaticFiles(directory="/app/static"), name="static")
 
 def get_cookies_path(uploaded_cookies=None):
     """Retorna o caminho para o arquivo de cookies disponivel."""
-    # 1. Cookies enviados pelo usuario
     if uploaded_cookies and os.path.exists(uploaded_cookies):
         logger.info(f"Usando cookies do usuario: {uploaded_cookies}")
         return uploaded_cookies
     
-    # 2. Secret file do Render (copiar para local gravavel)
     secret_path = "/etc/secrets/cookies.txt"
     if os.path.exists(secret_path):
         dest = os.path.join(TEMP_DIR, "server_cookies.txt")
@@ -41,7 +39,6 @@ def get_cookies_path(uploaded_cookies=None):
         except Exception as e:
             logger.warning(f"Nao foi possivel copiar secret cookies: {e}")
     
-    # 3. Cookies no repositorio
     repo_cookies = "/app/cookies.txt"
     if os.path.exists(repo_cookies):
         dest = os.path.join(TEMP_DIR, "server_cookies.txt")
@@ -66,14 +63,9 @@ def build_ydl_opts(output_path, format_type, cookies_path=None):
         "DNT": "1",
         "Connection": "keep-alive",
         "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Sec-Fetch-User": "?1",
-        "Cache-Control": "max-age=0",
     }
     
-    if format_type == "mp3":
+    if format_type == "audio":
         ydl_format = "bestaudio/best"
         postprocessors = [{
             "key": "FFmpegExtractAudio",
@@ -120,7 +112,6 @@ async def do_download(url: str, format_type: str, job_id: str, cookies_path: str
     
     try:
         await loop.run_in_executor(None, run_download)
-        # Encontrar arquivo baixado
         files = glob.glob(os.path.join(DOWNLOAD_DIR, f"{job_id}.*"))
         if files:
             return files[0]
@@ -129,7 +120,6 @@ async def do_download(url: str, format_type: str, job_id: str, cookies_path: str
         error_msg = str(e)
         logger.error(f"Download falhou: {error_msg}")
         
-        # Verificar se e erro de bot
         if "Sign in to confirm" in error_msg or "bot" in error_msg.lower():
             raise HTTPException(
                 status_code=403,
@@ -149,16 +139,15 @@ async def style():
 async def appjs():
     return FileResponse("/app/static/app.js")
 
-@app.post("/download")
-async def download(
+@app.post("/api/download")
+async def api_download(
     url: str = Form(...),
-    format: str = Form("mp4"),
+    mode: str = Form("video"),
     cookies: UploadFile = File(None)
 ):
     job_id = str(uuid.uuid4())
     cookies_path = None
     
-    # Processar cookies enviados pelo usuario
     if cookies and cookies.filename:
         cookies_dest = os.path.join(TEMP_DIR, f"user_cookies_{job_id}.txt")
         content = await cookies.read()
@@ -170,7 +159,10 @@ async def download(
     if not cookies_path:
         cookies_path = get_cookies_path()
     
-    file_path = await do_download(url, format, job_id, cookies_path)
+    # mode: 'video' ou 'audio'
+    format_type = "audio" if mode == "audio" else "video"
+    
+    file_path = await do_download(url, format_type, job_id, cookies_path)
     
     if not file_path or not os.path.exists(file_path):
         raise HTTPException(status_code=500, detail="Arquivo nao encontrado apos download.")
@@ -182,6 +174,17 @@ async def download(
         filename=filename,
         media_type="application/octet-stream"
     )
+
+# Rota alternativa para compatibilidade
+@app.post("/download")
+async def download_compat(
+    url: str = Form(...),
+    format: str = Form("mp4"),
+    mode: str = Form(None),
+    cookies: UploadFile = File(None)
+):
+    effective_mode = mode if mode else ("audio" if format == "mp3" else "video")
+    return await api_download(url=url, mode=effective_mode, cookies=cookies)
 
 @app.get("/health")
 async def health():
