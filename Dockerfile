@@ -1,8 +1,13 @@
 FROM python:3.10-slim
 
+# Instala o Deno (runtime JS necessário pelo yt-dlp para extração do YouTube)
+RUN apt-get update && apt-get install -y curl unzip && \
+    curl -fsSL https://deno.land/install.sh | sh && \
+    mv /root/.deno/bin/deno /usr/local/bin/deno
+ENV DENO_DIR="/tmp/.deno"
+
 # Instala ffmpeg (necessario para processamento de audio/video)
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg && \
+RUN apt-get install -y --no-install-recommends ffmpeg && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

@@ -63,7 +63,7 @@ def get_cookies_path(uploaded_cookies=None):
         except Exception as e:
             logger.warning(f"Erro ao copiar secret cookies: {e}")
     
-    repo_cookies = "/app/cookies.txt"
+    repo_cookies = "/app/cookies.txt" if os.path.exists("/app") else os.path.join(BASE_DIR, "cookies.txt")
     if os.path.exists(repo_cookies):
         dest = os.path.join(TEMP_DIR, "server_cookies.txt")
         try:
