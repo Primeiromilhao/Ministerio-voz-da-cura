@@ -2,7 +2,7 @@ import os
 import asyncio
 import logging
 import uuid
-from fastapi import FastAPI, BackgroundTasks, Form, HTTPException
+from fastapi import FastAPI, BackgroundTasks, Form, HTTPException, File, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import yt_dlp
@@ -28,13 +28,18 @@ def get_ffmpeg_location():
 
 def clean_file(filepath: str):
     try:
-        if os.path.exists(filepath):
+        if filepath and os.path.exists(filepath):
             os.remove(filepath)
             logger.info(f"Arquivo temporário deletado: {filepath}")
     except Exception as e:
         logger.error(f"Erro ao deletar arquivo {filepath}: {e}")
 
-def run_download(url: str, mode: str) -> str:
+def clean_files(filepath: str, cookies_path: str = None):
+    clean_file(filepath)
+    if cookies_path:
+        clean_file(cookies_path)
+
+def run_download(url: str, mode: str, cookies_path: str = None) -> str:
     unique_id = str(uuid.uuid4())[:8]
     # Limita o template de output para incluir um ID único e evitar conflitos de nomes simultâneos
     outtmpl = os.path.join(DOWNLOAD_DIR, f"{unique_id}_%(title)s.%(ext)s")
@@ -64,6 +69,10 @@ def run_download(url: str, mode: str) -> str:
         ydl_opts['ffmpeg_location'] = ffmpeg_loc
         logger.info(f"Usando FFmpeg local em: {ffmpeg_loc}")
 
+    if cookies_path:
+        ydl_opts['cookiefile'] = cookies_path
+        logger.info(f"Usando arquivo de cookies: {cookies_path}")
+
     logger.info(f"Iniciando download para url: {url} em modo: {mode}")
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
@@ -82,16 +91,40 @@ def run_download(url: str, mode: str) -> str:
         return filename
 
 @app.post("/api/download")
-async def api_download(background_tasks: BackgroundTasks, url: str = Form(...), mode: str = Form(...)):
+async def api_download(
+    background_tasks: BackgroundTasks, 
+    url: str = Form(...), 
+    mode: str = Form(...),
+    cookies: UploadFile = File(None)
+):
     if mode not in ["video", "audio"]:
         raise HTTPException(status_code=400, detail="Modo inválido. Escolha 'video' ou 'audio'.")
         
+    cookies_path = None
+    if cookies and cookies.filename:
+        # Salva o arquivo de cookies temporário
+        cookies_id = str(uuid.uuid4())[:8]
+        cookies_path = os.path.join(DOWNLOAD_DIR, f"{cookies_id}_cookies.txt")
+        try:
+            content = await cookies.read()
+            if content:
+                with open(cookies_path, "wb") as f:
+                    f.write(content)
+                logger.info(f"Arquivo de cookies salvo temporariamente em: {cookies_path}")
+            else:
+                cookies_path = None
+        except Exception as e:
+            logger.error(f"Erro ao salvar cookies: {e}")
+            cookies_path = None
+            
     try:
         # Executa o download de forma não-bloqueante na thread pool
-        filepath = await asyncio.to_thread(run_download, url, mode)
+        filepath = await asyncio.to_thread(run_download, url, mode, cookies_path)
         
         if not os.path.exists(filepath):
             logger.error("Arquivo baixado não foi encontrado no disco.")
+            if cookies_path:
+                clean_file(cookies_path)
             raise HTTPException(status_code=500, detail="Erro ao localizar o arquivo baixado.")
             
         file_size_mb = os.path.getsize(filepath) / (1024 * 1024)
@@ -103,7 +136,7 @@ async def api_download(background_tasks: BackgroundTasks, url: str = Form(...), 
             display_name = display_name.split("_", 1)[1]
             
         # Adiciona a limpeza do arquivo para rodar em segundo plano após o download terminar
-        background_tasks.add_task(clean_file, filepath)
+        background_tasks.add_task(clean_files, filepath, cookies_path)
         
         return FileResponse(
             path=filepath, 
@@ -113,6 +146,8 @@ async def api_download(background_tasks: BackgroundTasks, url: str = Form(...), 
         
     except Exception as e:
         logger.error(f"Erro no download: {e}")
+        if cookies_path:
+            clean_file(cookies_path)
         return JSONResponse(
             status_code=500,
             content={"detail": f"O download falhou. Verifique o link e tente novamente. Detalhes: {str(e)}"}

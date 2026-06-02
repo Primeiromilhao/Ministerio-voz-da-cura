@@ -25,6 +25,11 @@ document.addEventListener("DOMContentLoaded", () => {
         formData.append("url", urlInput);
         formData.append("mode", modeInput);
 
+        const cookiesInput = document.getElementById("cookies");
+        if (cookiesInput && cookiesInput.files.length > 0) {
+            formData.append("cookies", cookiesInput.files[0]);
+        }
+
         try {
             const response = await fetch("/api/download", {
                 method: "POST",

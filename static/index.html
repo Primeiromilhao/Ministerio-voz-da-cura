@@ -67,6 +67,27 @@
                     </label>
                 </div>
 
+                <!-- Opções Avançadas (Cookies para contornar bloqueio de bots) -->
+                <details class="advanced-settings">
+                    <summary class="advanced-summary">
+                        <i class="fa-solid fa-cookie-bite"></i> Configurações Avançadas (Opcional)
+                    </summary>
+                    <div class="advanced-content">
+                        <p class="settings-help">
+                            Se o download falhar com a mensagem <strong>"Sign in to confirm you're not a bot"</strong>,
+                            você pode exportar o arquivo de cookies do seu navegador (usando extensões como 
+                            <em>"Get Cookies.txt LOCALLY"</em> ou <em>"cookie.txt"</em>) e enviá-lo aqui.
+                        </p>
+                        <div class="input-group">
+                            <label for="cookies" class="input-label">Arquivo de Cookies (cookies.txt)</label>
+                            <div class="file-input-wrapper">
+                                <i class="fa-solid fa-file-code input-icon"></i>
+                                <input type="file" id="cookies" name="cookies" accept=".txt">
+                            </div>
+                        </div>
+                    </div>
+                </details>
+
                 <button type="submit" id="submit-btn" class="submit-btn">
                     <span id="btn-text">
                         <i class="fa-solid fa-cloud-arrow-down"></i> Iniciar Download
