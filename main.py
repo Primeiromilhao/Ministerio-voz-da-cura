@@ -12,188 +12,181 @@ import yt_dlp
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Baixador Ministério Voz da Cura")
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads_temp")
+app = FastAPI(title="Baixador Ministerio Voz da Cura")
 
-# Caminhos possiveis para o cookies.txt (somente leitura)
-COOKIE_SOURCE_PATHS = [
-    "/etc/secrets/cookies.txt",            # Render Secret File
-    os.path.join(BASE_DIR, "cookies.txt"), # Dockerfile COPY
-]
-# Caminho de trabalho (com permissao de escrita)
-COOKIE_WORK_PATH = os.path.join(DOWNLOAD_DIR, "server_cookies.txt")
-
+# Diretorios
+DOWNLOAD_DIR = "/app/downloads"
+TEMP_DIR = "/app/downloads_temp"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-os.makedirs(os.path.join(BASE_DIR, "static"), exist_ok=True)
+os.makedirs(TEMP_DIR, exist_ok=True)
 
-def prepare_server_cookies():
-    """Copia cookies de leitura para local com permissao de escrita."""
-    for source in COOKIE_SOURCE_PATHS:
-        if os.path.exists(source):
-            try:
-                shutil.copy2(source, COOKIE_WORK_PATH)
-                os.chmod(COOKIE_WORK_PATH, 0o600)
-                logger.info(f"Cookies copiados de {source} -> {COOKIE_WORK_PATH}")
-                return COOKIE_WORK_PATH
-            except Exception as e:
-                logger.error(f"Erro ao copiar cookies de {source}: {e}")
-    logger.warning("Nenhum cookies.txt encontrado no servidor")
+# Montar arquivos estaticos
+app.mount("/static", StaticFiles(directory="/app/static"), name="static")
+
+def get_cookies_path(uploaded_cookies=None):
+    """Retorna o caminho para o arquivo de cookies disponivel."""
+    # 1. Cookies enviados pelo usuario
+    if uploaded_cookies and os.path.exists(uploaded_cookies):
+        logger.info(f"Usando cookies do usuario: {uploaded_cookies}")
+        return uploaded_cookies
+    
+    # 2. Secret file do Render (copiar para local gravavel)
+    secret_path = "/etc/secrets/cookies.txt"
+    if os.path.exists(secret_path):
+        dest = os.path.join(TEMP_DIR, "server_cookies.txt")
+        try:
+            shutil.copy2(secret_path, dest)
+            logger.info(f"Usando cookies de: {dest}")
+            return dest
+        except Exception as e:
+            logger.warning(f"Nao foi possivel copiar secret cookies: {e}")
+    
+    # 3. Cookies no repositorio
+    repo_cookies = "/app/cookies.txt"
+    if os.path.exists(repo_cookies):
+        dest = os.path.join(TEMP_DIR, "server_cookies.txt")
+        try:
+            shutil.copy2(repo_cookies, dest)
+            logger.info(f"Usando cookies do repositorio: {dest}")
+            return dest
+        except Exception as e:
+            logger.warning(f"Nao foi possivel copiar repo cookies: {e}")
+    
+    logger.info("Nenhum cookies.txt encontrado, tentando sem cookies")
     return None
 
-# Preparar cookies no arranque
-SERVER_COOKIE_PATH = prepare_server_cookies()
-
-def clean_files(*paths):
-    for p in paths:
-        if p and p != COOKIE_WORK_PATH and os.path.exists(p):
-            try:
-                os.remove(p)
-            except Exception:
-                pass
-
-def find_downloaded_file(session_id: str):
-    patterns = [
-        os.path.join(DOWNLOAD_DIR, f"{session_id}.*"),
-        os.path.join(DOWNLOAD_DIR, f"{session_id}_*.*"),
-    ]
-    for pattern in patterns:
-        files = glob.glob(pattern)
-        if files:
-            return files[0]
-    return None
-
-def run_download(url: str, mode: str, session_id: str, cookie_path: str = None):
-    output_template = os.path.join(DOWNLOAD_DIR, f"{session_id}.%(ext)s")
-
-    # Prioridade: cookie do utilizador > cookie do servidor
-    effective_cookie = cookie_path or SERVER_COOKIE_PATH
-    if effective_cookie:
-        logger.info(f"Usando cookies de: {effective_cookie}")
-
+def build_ydl_opts(output_path, format_type, cookies_path=None):
+    """Constroi as opcoes para yt-dlp com estrategia anti-bot."""
+    
     http_headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Referer": "https://www.youtube.com/",
-        "Origin": "https://www.youtube.com",
+        "User-Agent": "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Accept-Encoding": "gzip, deflate, br",
+        "DNT": "1",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Cache-Control": "max-age=0",
     }
-
-    base_opts = {
-        "outtmpl": output_template,
+    
+    if format_type == "mp3":
+        ydl_format = "bestaudio/best"
+        postprocessors = [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": "192",
+        }]
+    else:
+        ydl_format = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+        postprocessors = []
+    
+    opts = {
+        "format": ydl_format,
+        "outtmpl": output_path,
+        "noplaylist": True,
         "quiet": False,
         "no_warnings": False,
-        "noplaylist": True,
         "http_headers": http_headers,
-        "retries": 5,
-        "fragment_retries": 5,
-        "extractor_retries": 3,
-        "sleep_interval": 2,
-        "max_sleep_interval": 5,
-        "sleep_interval_requests": 1,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["mweb", "web"],
+            }
+        },
+        "socket_timeout": 30,
+        "retries": 3,
+        "fragment_retries": 3,
+        "postprocessors": postprocessors,
     }
+    
+    if cookies_path and os.path.exists(cookies_path):
+        opts["cookiefile"] = cookies_path
+        logger.info(f"Cookies ativos: {cookies_path}")
+    
+    return opts
 
-    if effective_cookie:
-        base_opts["cookiefile"] = effective_cookie
-
-    if mode == "audio":
-        base_opts.update({
-            "format": "bestaudio/best",
-            "postprocessors": [{
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "192",
-            }],
-        })
-    else:
-        base_opts.update({
-            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-            "merge_output_format": "mp4",
-        })
-
-    client_strategies = [
-        {"extractor_args": {"youtube": {"player_client": ["tv_embedded"]}}},
-        {"extractor_args": {"youtube": {"player_client": ["ios"]}}},
-        {"extractor_args": {"youtube": {"player_client": ["web_embedded"]}}},
-        {"extractor_args": {"youtube": {"player_client": ["mweb"]}}},
-        {},
-    ]
-
-    last_error = None
-    for strategy in client_strategies:
-        opts = {**base_opts, **strategy}
-        try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                ydl.download([url])
-            result = find_downloaded_file(session_id)
-            if result:
-                logger.info(f"Download OK com strategy: {strategy}")
-                return result
-        except yt_dlp.utils.DownloadError as e:
-            last_error = str(e)
-            logger.warning(f"Strategy {strategy} falhou: {last_error[:200]}")
-            for f in glob.glob(os.path.join(DOWNLOAD_DIR, f"{session_id}*")):
-                try: os.remove(f)
-                except: pass
-            continue
-        except Exception as e:
-            last_error = str(e)
-            logger.error(f"Erro inesperado: {last_error}")
-            continue
-
-    raise Exception(last_error or "Todos os clientes falharam ao baixar o vídeo.")
-
-@app.post("/api/download")
-async def api_download(
-    background_tasks: BackgroundTasks,
-    url: str = Form(...),
-    mode: str = Form(...),
-    cookies: UploadFile = File(None)
-):
-    if not url or not url.startswith("http"):
-        raise HTTPException(status_code=400, detail="URL inválida.")
-
-    session_id = str(uuid.uuid4())
-    cookie_path = None
-
-    if cookies and cookies.filename:
-        cookie_path = os.path.join(DOWNLOAD_DIR, f"{session_id}_cookies.txt")
-        content = await cookies.read()
-        with open(cookie_path, "wb") as f:
-            f.write(content)
-
+async def do_download(url: str, format_type: str, job_id: str, cookies_path: str = None):
+    output_template = os.path.join(DOWNLOAD_DIR, f"{job_id}.%(ext)s")
+    opts = build_ydl_opts(output_template, format_type, cookies_path)
+    
+    loop = asyncio.get_event_loop()
+    
+    def run_download():
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            return ydl.download([url])
+    
     try:
-        loop = asyncio.get_event_loop()
-        file_path = await loop.run_in_executor(
-            None, run_download, url, mode, session_id, cookie_path
-        )
+        await loop.run_in_executor(None, run_download)
+        # Encontrar arquivo baixado
+        files = glob.glob(os.path.join(DOWNLOAD_DIR, f"{job_id}.*"))
+        if files:
+            return files[0]
+        return None
     except Exception as e:
         error_msg = str(e)
-        if cookie_path:
-            background_tasks.add_task(clean_files, cookie_path)
         logger.error(f"Download falhou: {error_msg}")
+        
+        # Verificar se e erro de bot
+        if "Sign in to confirm" in error_msg or "bot" in error_msg.lower():
+            raise HTTPException(
+                status_code=403,
+                detail="O YouTube detectou acesso automatizado. Por favor, faca o upload do seu cookies.txt para continuar. Exporte-o do seu navegador com a extensao 'Get cookies.txt LOCALLY'."
+            )
+        raise HTTPException(status_code=500, detail=f"Erro no download: {error_msg}")
 
-        detail = "O download falhou. Verifique o link e tente novamente."
-        if "bot" in error_msg.lower() or "sign in" in error_msg.lower() or "confirm" in error_msg.lower():
-            detail += " ⚠️ O YouTube bloqueou este download. Por favor, abra as 'Configurações Avançadas' e envie um arquivo cookies.txt do seu navegador."
-        elif "copyright" in error_msg.lower():
-            detail += " Este vídeo está bloqueado por direitos autorais."
-        elif "private" in error_msg.lower():
-            detail += " Este vídeo é privado."
+@app.get("/")
+async def index():
+    return FileResponse("/app/static/index.html")
 
-        raise HTTPException(status_code=500, detail=detail)
+@app.get("/style.css")
+async def style():
+    return FileResponse("/app/static/style.css")
 
+@app.get("/app.js")
+async def appjs():
+    return FileResponse("/app/static/app.js")
+
+@app.post("/download")
+async def download(
+    url: str = Form(...),
+    format: str = Form("mp4"),
+    cookies: UploadFile = File(None)
+):
+    job_id = str(uuid.uuid4())
+    cookies_path = None
+    
+    # Processar cookies enviados pelo usuario
+    if cookies and cookies.filename:
+        cookies_dest = os.path.join(TEMP_DIR, f"user_cookies_{job_id}.txt")
+        content = await cookies.read()
+        with open(cookies_dest, "wb") as f:
+            f.write(content)
+        cookies_path = cookies_dest
+        logger.info(f"Cookies do usuario salvos em: {cookies_dest}")
+    
+    if not cookies_path:
+        cookies_path = get_cookies_path()
+    
+    file_path = await do_download(url, format, job_id, cookies_path)
+    
+    if not file_path or not os.path.exists(file_path):
+        raise HTTPException(status_code=500, detail="Arquivo nao encontrado apos download.")
+    
     filename = os.path.basename(file_path)
-    background_tasks.add_task(clean_files, file_path, cookie_path)
-
+    
     return FileResponse(
         path=file_path,
         filename=filename,
         media_type="application/octet-stream"
     )
 
-app.mount("/", StaticFiles(directory=os.path.join(BASE_DIR, "static"), html=True), name="static")
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
