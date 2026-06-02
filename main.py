@@ -34,7 +34,7 @@ def get_ffmpeg_location():
 def get_deno_path():
     """Encontra o Deno para usar como JS runtime do yt-dlp."""
     deno_paths = [
-        os.path.expanduser("~/.deno/bin/deno"),       # Linux/Docker
+        os.path.expanduser("~/.deno/bin/deno"),        # Linux/Docker
         os.path.expanduser("~/.deno/bin/deno.exe"),    # Windows
         r"C:\Users\Utilizador\.deno\bin\deno.exe",     # Windows específico
         "/root/.deno/bin/deno",                         # Docker root
@@ -64,12 +64,10 @@ def clean_files(filepath: str, cookies_path: str = None):
 
 def run_download(url: str, mode: str, cookies_path: str = None) -> str:
     unique_id = str(uuid.uuid4())[:8]
-    # Limita o template de output para incluir um ID único e evitar conflitos de nomes simultâneos
     outtmpl = os.path.join(DOWNLOAD_DIR, f"{unique_id}_%(title)s.%(ext)s")
-    
     ffmpeg_loc = get_ffmpeg_location()
     is_youtube = "youtube.com" in url or "youtu.be" in url
-    
+
     if mode == "audio":
         ydl_opts = {
             'format': 'bestaudio[language*=pt]/bestaudio',
@@ -95,14 +93,17 @@ def run_download(url: str, mode: str, cookies_path: str = None) -> str:
         'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
     }
 
-    # Configurações específicas para YouTube
+    # Configurações específicas para YouTube - usa cliente Android para evitar bot detection
     if is_youtube:
         ydl_opts['extractor_args'] = {
             'youtube': {
-                'player_client': ['default'],
+                'player_client': ['android', 'web', 'default'],
+                'player_skip': ['webpage', 'configs'],
             }
         }
-        
+        ydl_opts['sleep_interval'] = 1
+        ydl_opts['max_sleep_interval'] = 3
+
     if ffmpeg_loc:
         ydl_opts['ffmpeg_location'] = ffmpeg_loc
         logger.info(f"Usando FFmpeg local em: {ffmpeg_loc}")
@@ -123,22 +124,17 @@ def run_download(url: str, mode: str, cookies_path: str = None) -> str:
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
-            # ydl.prepare_filename resolve o nome final, mas para o áudio com pós-processador do FFmpeg, a extensão vira .mp3
             filename = ydl.prepare_filename(info)
-            
             if mode == "audio":
                 filename = os.path.splitext(filename)[0] + ".mp3"
             else:
-                # Garante que a extensão final seja .mp4 caso o download original tenha sido fundido pelo ffmpeg
                 if not os.path.exists(filename):
                     mp4_filename = os.path.splitext(filename)[0] + ".mp4"
                     if os.path.exists(mp4_filename):
                         filename = mp4_filename
-                        
             return filename
     except Exception as e:
         error_msg = str(e)
-        # Mensagem mais clara para o bloqueio de bot do YouTube
         if is_youtube and ("Sign in to confirm" in error_msg or "bot" in error_msg.lower()):
             raise Exception(
                 "⚠️ O YouTube bloqueou este download porque detectou um acesso automatizado. "
@@ -150,17 +146,16 @@ def run_download(url: str, mode: str, cookies_path: str = None) -> str:
 
 @app.post("/api/download")
 async def api_download(
-    background_tasks: BackgroundTasks, 
-    url: str = Form(...), 
+    background_tasks: BackgroundTasks,
+    url: str = Form(...),
     mode: str = Form(...),
     cookies: UploadFile = File(None)
 ):
     if mode not in ["video", "audio"]:
         raise HTTPException(status_code=400, detail="Modo inválido. Escolha 'video' ou 'audio'.")
-        
+
     cookies_path = None
     if cookies and cookies.filename:
-        # Salva o arquivo de cookies temporário
         cookies_id = str(uuid.uuid4())[:8]
         cookies_path = os.path.join(DOWNLOAD_DIR, f"{cookies_id}_cookies.txt")
         try:
@@ -174,34 +169,28 @@ async def api_download(
         except Exception as e:
             logger.error(f"Erro ao salvar cookies: {e}")
             cookies_path = None
-            
+
     try:
-        # Executa o download de forma não-bloqueante na thread pool
         filepath = await asyncio.to_thread(run_download, url, mode, cookies_path)
-        
         if not os.path.exists(filepath):
             logger.error("Arquivo baixado não foi encontrado no disco.")
             if cookies_path:
                 clean_file(cookies_path)
             raise HTTPException(status_code=500, detail="Erro ao localizar o arquivo baixado.")
-            
+
         file_size_mb = os.path.getsize(filepath) / (1024 * 1024)
         logger.info(f"Download concluído com sucesso. Tamanho: {file_size_mb:.2f} MB")
-        
+
         display_name = os.path.basename(filepath)
-        # Remove o ID único do nome exibido ao usuário
         if "_" in display_name:
             display_name = display_name.split("_", 1)[1]
-            
-        # Adiciona a limpeza do arquivo para rodar em segundo plano após o download terminar
+
         background_tasks.add_task(clean_files, filepath, cookies_path)
-        
         return FileResponse(
-            path=filepath, 
-            filename=display_name, 
+            path=filepath,
+            filename=display_name,
             media_type="application/octet-stream"
         )
-        
     except Exception as e:
         logger.error(f"Erro no download: {e}")
         if cookies_path:
@@ -216,5 +205,4 @@ app.mount("/", StaticFiles(directory=os.path.join(BASE_DIR, "static"), html=True
 
 if __name__ == "__main__":
     import uvicorn
-    # Inicia localmente na porta 8000
     uvicorn.run(app, host="0.0.0.0", port=8000)
