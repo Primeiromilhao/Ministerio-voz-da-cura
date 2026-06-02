@@ -3,6 +3,7 @@ import asyncio
 import logging
 import uuid
 import glob
+import shutil
 from fastapi import FastAPI, BackgroundTasks, Form, HTTPException, File, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -15,25 +16,37 @@ app = FastAPI(title="Baixador Ministério Voz da Cura")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads_temp")
 
-# Caminhos possiveis para o cookies.txt
-COOKIE_PATHS = [
-    "/etc/secrets/cookies.txt",           # Render Secret File
+# Caminhos possiveis para o cookies.txt (somente leitura)
+COOKIE_SOURCE_PATHS = [
+    "/etc/secrets/cookies.txt",            # Render Secret File
     os.path.join(BASE_DIR, "cookies.txt"), # Dockerfile COPY
 ]
+# Caminho de trabalho (com permissao de escrita)
+COOKIE_WORK_PATH = os.path.join(DOWNLOAD_DIR, "server_cookies.txt")
+
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 os.makedirs(os.path.join(BASE_DIR, "static"), exist_ok=True)
 
-def get_cookie_path():
-    for path in COOKIE_PATHS:
-        if os.path.exists(path):
-            logger.info(f"cookies.txt encontrado em: {path}")
-            return path
-    logger.warning("cookies.txt NAO encontrado em nenhum caminho!")
+def prepare_server_cookies():
+    """Copia cookies de leitura para local com permissao de escrita."""
+    for source in COOKIE_SOURCE_PATHS:
+        if os.path.exists(source):
+            try:
+                shutil.copy2(source, COOKIE_WORK_PATH)
+                os.chmod(COOKIE_WORK_PATH, 0o600)
+                logger.info(f"Cookies copiados de {source} -> {COOKIE_WORK_PATH}")
+                return COOKIE_WORK_PATH
+            except Exception as e:
+                logger.error(f"Erro ao copiar cookies de {source}: {e}")
+    logger.warning("Nenhum cookies.txt encontrado no servidor")
     return None
+
+# Preparar cookies no arranque
+SERVER_COOKIE_PATH = prepare_server_cookies()
 
 def clean_files(*paths):
     for p in paths:
-        if p and os.path.exists(p) and p not in COOKIE_PATHS:
+        if p and p != COOKIE_WORK_PATH and os.path.exists(p):
             try:
                 os.remove(p)
             except Exception:
@@ -53,8 +66,10 @@ def find_downloaded_file(session_id: str):
 def run_download(url: str, mode: str, session_id: str, cookie_path: str = None):
     output_template = os.path.join(DOWNLOAD_DIR, f"{session_id}.%(ext)s")
 
-    # Prioridade: cookie enviado pelo utilizador > cookie do servidor
-    effective_cookie = cookie_path or get_cookie_path()
+    # Prioridade: cookie do utilizador > cookie do servidor
+    effective_cookie = cookie_path or SERVER_COOKIE_PATH
+    if effective_cookie:
+        logger.info(f"Usando cookies de: {effective_cookie}")
 
     http_headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
