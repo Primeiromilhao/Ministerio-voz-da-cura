@@ -16,3 +16,18 @@ env/
 # Ignorar logs e arquivos locais
 *.log
 .env
+
+# Scripts utilitários de debug (não são parte da app)
+copy_edge_cookies.py
+export_cookies.py
+export_edge_cookies.py
+export_comet_cookies.py
+inspect_comet_db.py
+inspect_db.py
+inspect_real_chrome_cookies.py
+kill_browsers.py
+list_all_cookies_db.py
+search_api_change.py
+test_cobalt.py
+test_master_key.py
+test_read_file.py

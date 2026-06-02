@@ -18,12 +18,35 @@ DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads_temp")
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 os.makedirs(os.path.join(BASE_DIR, "static"), exist_ok=True)
 
-# Define caminhos locais para FFmpeg no Windows
-LOCAL_FFMPEG = r"C:\Users\Utilizador\BaixadorUniversal"
+# Tenta encontrar o FFmpeg em caminhos comuns (Windows local)
+# No Docker/Linux, o ffmpeg já está no PATH via apt-get, então não precisa de caminho
+FFMPEG_SEARCH_PATHS = [
+    r"C:\Users\Utilizador\BaixadorUniversal",
+    r"C:\ffmpeg\bin",
+]
 
 def get_ffmpeg_location():
-    if os.path.exists(LOCAL_FFMPEG):
-        return LOCAL_FFMPEG
+    for path in FFMPEG_SEARCH_PATHS:
+        if os.path.exists(path):
+            return path
+    return None  # Usa o ffmpeg do PATH do sistema (Docker/Linux)
+
+def get_deno_path():
+    """Encontra o Deno para usar como JS runtime do yt-dlp."""
+    deno_paths = [
+        os.path.expanduser("~/.deno/bin/deno"),       # Linux/Docker
+        os.path.expanduser("~/.deno/bin/deno.exe"),    # Windows
+        r"C:\Users\Utilizador\.deno\bin\deno.exe",     # Windows específico
+        "/root/.deno/bin/deno",                         # Docker root
+    ]
+    for p in deno_paths:
+        if os.path.exists(p):
+            return p
+    # Tenta encontrar no PATH do sistema
+    import shutil
+    deno_in_path = shutil.which("deno")
+    if deno_in_path:
+        return deno_in_path
     return None
 
 def clean_file(filepath: str):
@@ -72,6 +95,14 @@ def run_download(url: str, mode: str, cookies_path: str = None) -> str:
     if cookies_path:
         ydl_opts['cookiefile'] = cookies_path
         logger.info(f"Usando arquivo de cookies: {cookies_path}")
+
+    # Configura o Deno como JS runtime (essencial para extração do YouTube)
+    deno_path = get_deno_path()
+    if deno_path:
+        ydl_opts['js_runtimes'] = f"deno:{deno_path}"
+        logger.info(f"Usando Deno JS runtime em: {deno_path}")
+    else:
+        logger.warning("Deno não encontrado. Downloads do YouTube podem falhar.")
 
     logger.info(f"Iniciando download para url: {url} em modo: {mode}")
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
