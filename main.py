@@ -4,7 +4,7 @@ import logging
 import uuid
 import glob
 import shutil
-from fastapi import FastAPI, BackgroundTasks, Form, HTTPException, File, UploadFile
+from fastapi import FastAPI, Form, HTTPException, File, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import yt_dlp
@@ -14,17 +14,14 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Baixador Ministerio Voz da Cura")
 
-# Diretorios
 DOWNLOAD_DIR = "/app/downloads"
 TEMP_DIR = "/app/downloads_temp"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 os.makedirs(TEMP_DIR, exist_ok=True)
 
-# Montar arquivos estaticos
 app.mount("/static", StaticFiles(directory="/app/static"), name="static")
 
 def get_cookies_path(uploaded_cookies=None):
-    """Retorna o caminho para o arquivo de cookies disponivel."""
     if uploaded_cookies and os.path.exists(uploaded_cookies):
         logger.info(f"Usando cookies do usuario: {uploaded_cookies}")
         return uploaded_cookies
@@ -34,37 +31,24 @@ def get_cookies_path(uploaded_cookies=None):
         dest = os.path.join(TEMP_DIR, "server_cookies.txt")
         try:
             shutil.copy2(secret_path, dest)
-            logger.info(f"Usando cookies de: {dest}")
+            logger.info(f"Usando cookies secret: {dest}")
             return dest
         except Exception as e:
-            logger.warning(f"Nao foi possivel copiar secret cookies: {e}")
+            logger.warning(f"Erro ao copiar secret cookies: {e}")
     
     repo_cookies = "/app/cookies.txt"
     if os.path.exists(repo_cookies):
         dest = os.path.join(TEMP_DIR, "server_cookies.txt")
         try:
             shutil.copy2(repo_cookies, dest)
-            logger.info(f"Usando cookies do repositorio: {dest}")
+            logger.info(f"Usando cookies repositorio: {dest}")
             return dest
         except Exception as e:
-            logger.warning(f"Nao foi possivel copiar repo cookies: {e}")
+            logger.warning(f"Erro ao copiar repo cookies: {e}")
     
-    logger.info("Nenhum cookies.txt encontrado, tentando sem cookies")
     return None
 
 def build_ydl_opts(output_path, format_type, cookies_path=None):
-    """Constroi as opcoes para yt-dlp com estrategia anti-bot."""
-    
-    http_headers = {
-        "User-Agent": "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Accept-Encoding": "gzip, deflate, br",
-        "DNT": "1",
-        "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-    }
-    
     if format_type == "audio":
         ydl_format = "bestaudio/best"
         postprocessors = [{
@@ -82,10 +66,9 @@ def build_ydl_opts(output_path, format_type, cookies_path=None):
         "noplaylist": True,
         "quiet": False,
         "no_warnings": False,
-        "http_headers": http_headers,
         "extractor_args": {
             "youtube": {
-                "player_client": ["mweb", "web"],
+                "player_client": ["ios", "android", "mweb"],
             }
         },
         "socket_timeout": 30,
@@ -120,10 +103,10 @@ async def do_download(url: str, format_type: str, job_id: str, cookies_path: str
         error_msg = str(e)
         logger.error(f"Download falhou: {error_msg}")
         
-        if "Sign in to confirm" in error_msg or "bot" in error_msg.lower():
+        if "Sign in to confirm" in error_msg or ("bot" in error_msg.lower() and "youtube" in error_msg.lower()):
             raise HTTPException(
                 status_code=403,
-                detail="O YouTube detectou acesso automatizado. Por favor, faca o upload do seu cookies.txt para continuar. Exporte-o do seu navegador com a extensao 'Get cookies.txt LOCALLY'."
+                detail="O YouTube bloqueou o acesso. Faca upload do seu cookies.txt para continuar. Use a extensao 'Get cookies.txt LOCALLY' no seu navegador."
             )
         raise HTTPException(status_code=500, detail=f"Erro no download: {error_msg}")
 
@@ -154,13 +137,13 @@ async def api_download(
         with open(cookies_dest, "wb") as f:
             f.write(content)
         cookies_path = cookies_dest
-        logger.info(f"Cookies do usuario salvos em: {cookies_dest}")
+        logger.info(f"Cookies do usuario: {cookies_dest}")
     
     if not cookies_path:
         cookies_path = get_cookies_path()
     
-    # mode: 'video' ou 'audio'
     format_type = "audio" if mode == "audio" else "video"
+    logger.info(f"Download: url={url}, mode={mode}, format={format_type}")
     
     file_path = await do_download(url, format_type, job_id, cookies_path)
     
@@ -175,7 +158,6 @@ async def api_download(
         media_type="application/octet-stream"
     )
 
-# Rota alternativa para compatibilidade
 @app.post("/download")
 async def download_compat(
     url: str = Form(...),
