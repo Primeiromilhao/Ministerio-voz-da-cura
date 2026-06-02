@@ -67,26 +67,33 @@
                     </label>
                 </div>
 
-                <!-- Opções Avançadas (Cookies para contornar bloqueio de bots) -->
-                <details class="advanced-settings">
-                    <summary class="advanced-summary">
-                        <i class="fa-solid fa-cookie-bite"></i> Configurações Avançadas (Opcional)
-                    </summary>
-                    <div class="advanced-content">
-                        <p class="settings-help">
-                            Se o download falhar com a mensagem <strong>"Sign in to confirm you're not a bot"</strong>,
-                            você pode exportar o arquivo de cookies do seu navegador (usando extensões como 
-                            <em>"Get Cookies.txt LOCALLY"</em> ou <em>"cookie.txt"</em>) e enviá-lo aqui.
-                        </p>
-                        <div class="input-group">
-                            <label for="cookies" class="input-label">Arquivo de Cookies (cookies.txt)</label>
-                            <div class="file-input-wrapper">
-                                <i class="fa-solid fa-file-code input-icon"></i>
-                                <input type="file" id="cookies" name="cookies" accept=".txt">
-                            </div>
+                <!-- Aviso sobre YouTube e Upload de Cookies -->
+                <div class="youtube-notice">
+                    <div class="notice-header">
+                        <i class="fa-brands fa-youtube" style="color: #ef4444;"></i>
+                        <span>Aviso para vídeos do YouTube</span>
+                    </div>
+                    <p class="notice-text">
+                        O YouTube bloqueia downloads de servidores. Para baixar vídeos do YouTube, 
+                        é <strong>obrigatório</strong> enviar o arquivo <code>cookies.txt</code> do seu navegador.
+                    </p>
+                    <details class="cookie-instructions">
+                        <summary><i class="fa-solid fa-circle-question"></i> Como obter o cookies.txt?</summary>
+                        <ol class="instructions-list">
+                            <li>Instale a extensão <strong><a href="https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc" target="_blank">"Get Cookies.txt LOCALLY"</a></strong> no Chrome/Edge</li>
+                            <li>Abra o <a href="https://www.youtube.com" target="_blank">YouTube</a> e faça login na sua conta</li>
+                            <li>Clique no ícone da extensão e em <strong>"Export"</strong></li>
+                            <li>Envie o arquivo baixado aqui embaixo</li>
+                        </ol>
+                    </details>
+                    <div class="input-group" style="margin-top: 8px;">
+                        <div class="file-input-wrapper">
+                            <i class="fa-solid fa-cookie-bite input-icon"></i>
+                            <input type="file" id="cookies" name="cookies" accept=".txt">
                         </div>
                     </div>
-                </details>
+                    <p class="notice-small"><i class="fa-solid fa-shield-halved"></i> TikTok, Instagram e Facebook <strong>não precisam</strong> de cookies.</p>
+                </div>
 
                 <button type="submit" id="submit-btn" class="submit-btn">
                     <span id="btn-text">

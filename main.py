@@ -68,6 +68,7 @@ def run_download(url: str, mode: str, cookies_path: str = None) -> str:
     outtmpl = os.path.join(DOWNLOAD_DIR, f"{unique_id}_%(title)s.%(ext)s")
     
     ffmpeg_loc = get_ffmpeg_location()
+    is_youtube = "youtube.com" in url or "youtu.be" in url
     
     if mode == "audio":
         ydl_opts = {
@@ -87,6 +88,20 @@ def run_download(url: str, mode: str, cookies_path: str = None) -> str:
             'noplaylist': True,
             'merge_output_format': 'mp4',
         }
+
+    # Simula um navegador real para reduzir bloqueio de bot
+    ydl_opts['http_headers'] = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+    }
+
+    # Configurações específicas para YouTube
+    if is_youtube:
+        ydl_opts['extractor_args'] = {
+            'youtube': {
+                'player_client': ['default'],
+            }
+        }
         
     if ffmpeg_loc:
         ydl_opts['ffmpeg_location'] = ffmpeg_loc
@@ -105,21 +120,33 @@ def run_download(url: str, mode: str, cookies_path: str = None) -> str:
         logger.warning("Deno não encontrado. Downloads do YouTube podem falhar.")
 
     logger.info(f"Iniciando download para url: {url} em modo: {mode}")
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        # ydl.prepare_filename resolve o nome final, mas para o áudio com pós-processador do FFmpeg, a extensão vira .mp3
-        filename = ydl.prepare_filename(info)
-        
-        if mode == "audio":
-            filename = os.path.splitext(filename)[0] + ".mp3"
-        else:
-            # Garante que a extensão final seja .mp4 caso o download original tenha sido fundido pelo ffmpeg
-            if not os.path.exists(filename):
-                mp4_filename = os.path.splitext(filename)[0] + ".mp4"
-                if os.path.exists(mp4_filename):
-                    filename = mp4_filename
-                    
-        return filename
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            # ydl.prepare_filename resolve o nome final, mas para o áudio com pós-processador do FFmpeg, a extensão vira .mp3
+            filename = ydl.prepare_filename(info)
+            
+            if mode == "audio":
+                filename = os.path.splitext(filename)[0] + ".mp3"
+            else:
+                # Garante que a extensão final seja .mp4 caso o download original tenha sido fundido pelo ffmpeg
+                if not os.path.exists(filename):
+                    mp4_filename = os.path.splitext(filename)[0] + ".mp4"
+                    if os.path.exists(mp4_filename):
+                        filename = mp4_filename
+                        
+            return filename
+    except Exception as e:
+        error_msg = str(e)
+        # Mensagem mais clara para o bloqueio de bot do YouTube
+        if is_youtube and ("Sign in to confirm" in error_msg or "bot" in error_msg.lower()):
+            raise Exception(
+                "⚠️ O YouTube bloqueou este download porque detectou um acesso automatizado. "
+                "Para resolver, abra as 'Configurações Avançadas' e envie um arquivo cookies.txt "
+                "do seu navegador (use a extensão 'Get Cookies.txt LOCALLY' no Chrome/Edge). "
+                "Isto é necessário para vídeos do YouTube."
+            )
+        raise
 
 @app.post("/api/download")
 async def api_download(
