@@ -54,13 +54,12 @@ def run_download(url: str, mode: str, cookies_path: str = None) -> str:
         }
 
     if is_youtube:
+        # Tenta varios player_clients em sequencia ate um funcionar
+        # tv_embedded e mweb sao menos bloqueados em servidores
         ydl_opts['extractor_args'] = {
             'youtube': {
-                'player_client': ['ios'],
+                'player_client': ['tv_embedded', 'ios', 'web_embedded'],
             }
-        }
-        ydl_opts['http_headers'] = {
-            'User-Agent': 'com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)',
         }
 
     if cookies_path and os.path.exists(cookies_path):
