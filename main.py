@@ -2,8 +2,6 @@ import os
 import asyncio
 import logging
 import uuid
-import subprocess
-import shutil
 from fastapi import FastAPI, BackgroundTasks, Form, HTTPException, File, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -19,50 +17,12 @@ DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads_temp")
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 os.makedirs(os.path.join(BASE_DIR, "static"), exist_ok=True)
 
-# Servidor bgutil para PO Token (iniciado uma vez na startup)
-_bgutil_process = None
-
-def start_bgutil_server():
-    """Inicia o servidor bgutil-ytdlp-pot-provider em background."""
-    global _bgutil_process
-    try:
-        import bgutil_ytdlp_pot_provider
-        server_script = os.path.join(
-            os.path.dirname(bgutil_ytdlp_pot_provider.__file__),
-            "server", "build", "server.js"
-        )
-        if os.path.exists(server_script):
-            node_bin = shutil.which("node")
-            if node_bin:
-                _bgutil_process = subprocess.Popen(
-                    [node_bin, server_script],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
-                )
-                logger.info(f"Servidor bgutil iniciado (PID {_bgutil_process.pid})")
-                return True
-            else:
-                logger.warning("Node.js não encontrado - bgutil não iniciado")
-        else:
-            logger.warning(f"Script bgutil não encontrado: {server_script}")
-    except Exception as e:
-        logger.warning(f"Erro ao iniciar bgutil: {e}")
-    return False
-
-@app.on_event("startup")
-async def startup_event():
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, start_bgutil_server)
-    # Aguarda o servidor bgutil iniciar
-    await asyncio.sleep(3)
-
 def clean_file(filepath: str):
     try:
         if filepath and os.path.exists(filepath):
             os.remove(filepath)
-            logger.info(f"Arquivo temporário deletado: {filepath}")
     except Exception as e:
-        logger.error(f"Erro ao deletar arquivo {filepath}: {e}")
+        logger.error(f"Erro ao deletar {filepath}: {e}")
 
 def clean_files(filepath: str, cookies_path: str = None):
     clean_file(filepath)
@@ -94,19 +54,14 @@ def run_download(url: str, mode: str, cookies_path: str = None) -> str:
         }
 
     if is_youtube:
-        extractor_args = {
+        ydl_opts['extractor_args'] = {
             'youtube': {
-                'player_client': ['web'],
+                'player_client': ['ios'],
             }
         }
-        # Usa o plugin bgutil para PO Token se o servidor estiver rodando
-        if _bgutil_process and _bgutil_process.poll() is None:
-            extractor_args['youtubepot-bgutilhttp'] = {
-                'base_url': 'http://127.0.0.1:4416'
-            }
-            logger.info("Usando bgutil PO Token provider")
-
-        ydl_opts['extractor_args'] = extractor_args
+        ydl_opts['http_headers'] = {
+            'User-Agent': 'com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)',
+        }
 
     if cookies_path and os.path.exists(cookies_path):
         ydl_opts['cookiefile'] = cookies_path
