@@ -2,6 +2,8 @@ import os
 import asyncio
 import logging
 import uuid
+import subprocess
+import shutil
 from fastapi import FastAPI, BackgroundTasks, Form, HTTPException, File, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -16,6 +18,43 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads_temp")
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 os.makedirs(os.path.join(BASE_DIR, "static"), exist_ok=True)
+
+# Servidor bgutil para PO Token (iniciado uma vez na startup)
+_bgutil_process = None
+
+def start_bgutil_server():
+    """Inicia o servidor bgutil-ytdlp-pot-provider em background."""
+    global _bgutil_process
+    try:
+        import bgutil_ytdlp_pot_provider
+        server_script = os.path.join(
+            os.path.dirname(bgutil_ytdlp_pot_provider.__file__),
+            "server", "build", "server.js"
+        )
+        if os.path.exists(server_script):
+            node_bin = shutil.which("node")
+            if node_bin:
+                _bgutil_process = subprocess.Popen(
+                    [node_bin, server_script],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                logger.info(f"Servidor bgutil iniciado (PID {_bgutil_process.pid})")
+                return True
+            else:
+                logger.warning("Node.js não encontrado - bgutil não iniciado")
+        else:
+            logger.warning(f"Script bgutil não encontrado: {server_script}")
+    except Exception as e:
+        logger.warning(f"Erro ao iniciar bgutil: {e}")
+    return False
+
+@app.on_event("startup")
+async def startup_event():
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, start_bgutil_server)
+    # Aguarda o servidor bgutil iniciar
+    await asyncio.sleep(3)
 
 def clean_file(filepath: str):
     try:
@@ -55,18 +94,23 @@ def run_download(url: str, mode: str, cookies_path: str = None) -> str:
         }
 
     if is_youtube:
-        ydl_opts['extractor_args'] = {
+        extractor_args = {
             'youtube': {
-                'player_client': ['ios', 'android'],
+                'player_client': ['web'],
             }
         }
-        ydl_opts['http_headers'] = {
-            'User-Agent': 'com.google.ios.youtube/19.09.3 (iPhone14,3; U; CPU iOS 15_6 like Mac OS X)',
-        }
+        # Usa o plugin bgutil para PO Token se o servidor estiver rodando
+        if _bgutil_process and _bgutil_process.poll() is None:
+            extractor_args['youtubepot-bgutilhttp'] = {
+                'base_url': 'http://127.0.0.1:4416'
+            }
+            logger.info("Usando bgutil PO Token provider")
+
+        ydl_opts['extractor_args'] = extractor_args
 
     if cookies_path and os.path.exists(cookies_path):
         ydl_opts['cookiefile'] = cookies_path
-        logger.info(f"Usando arquivo de cookies: {cookies_path}")
+        logger.info(f"Usando cookies: {cookies_path}")
 
     logger.info(f"Iniciando download: {url} modo: {mode}")
     try:
@@ -86,9 +130,9 @@ def run_download(url: str, mode: str, cookies_path: str = None) -> str:
         logger.error(f"Erro yt-dlp: {error_msg}")
         if is_youtube and ("Sign in" in error_msg or "bot" in error_msg.lower() or "confirm" in error_msg.lower()):
             raise Exception(
-                "⚠️ O YouTube bloqueou este download porque detectou um acesso automatizado. "
-                "Para resolver, abra as 'Configurações Avançadas' e envie um arquivo cookies.txt "
-                "do seu navegador (use a extensão 'Get Cookies.txt LOCALLY' no Chrome/Edge)."
+                "⚠️ O YouTube bloqueou este download. "
+                "Por favor, abra as 'Configurações Avançadas' e envie um arquivo cookies.txt "
+                "do seu navegador (extensão 'Get Cookies.txt LOCALLY' no Chrome/Edge)."
             )
         raise
 
