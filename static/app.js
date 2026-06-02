@@ -93,6 +93,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (progressInterval) clearInterval(progressInterval);
         
         spinner.className = "spinner"; // Reset classes
+        spinner.innerHTML = ""; // Reset content (icons)
         progressBar.style.backgroundColor = ""; // Reset cor
         progressBar.style.width = "0%";
         

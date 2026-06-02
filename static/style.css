@@ -339,14 +339,13 @@ body {
     animation: spin 1s infinite linear;
 }
 
-.spinner.success {
-    border-color: var(--success-color);
-    animation: none;
-}
-
+.spinner.success,
 .spinner.error {
-    border-color: var(--error-color);
+    border: none;
     animation: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 @keyframes spin {
