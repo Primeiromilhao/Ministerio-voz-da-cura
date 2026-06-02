@@ -1,0 +1,18 @@
+# Ignorar pasta temporária de downloads do servidor
+downloads_temp/
+
+# Ignorar caches do Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Ignorar ambientes virtuais
+venv/
+.venv/
+env/
+
+# Ignorar logs e arquivos locais
+*.log
+.env

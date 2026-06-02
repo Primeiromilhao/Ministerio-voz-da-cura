@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Baixador de Mídia - Ministério Voz da Cura</title>
+    <meta name="description" content="Baixador oficial de vídeos e áudios do Ministério Voz da Cura. Baixe do YouTube, TikTok, Facebook e Instagram em alta qualidade.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Plus+Jakarta+Sans:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="style.css">
+    <!-- FontAwesome para ícones -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="glass-bg-blobs">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+    </div>
+
+    <div class="app-container">
+        <header class="app-header">
+            <div class="logo-area">
+                <i class="fa-solid fa-circle-radiation logo-icon"></i>
+                <span class="logo-text">Voz da Cura</span>
+            </div>
+            <h1 class="main-title">Ministério Voz da Cura</h1>
+            <p class="subtitle">Baixe vídeos e áudios com compatibilidade universal (MP4 / MP3)</p>
+        </header>
+
+        <main class="downloader-card">
+            <form id="download-form" class="download-form">
+                <div class="input-group">
+                    <label for="url" class="input-label">Cole o link do vídeo aqui</label>
+                    <div class="input-wrapper">
+                        <i class="fa-solid fa-link input-icon"></i>
+                        <input 
+                            type="url" 
+                            id="url" 
+                            name="url" 
+                            placeholder="https://www.youtube.com/watch?v=... ou TikTok, Instagram, FB" 
+                            required 
+                            autocomplete="off"
+                        >
+                    </div>
+                </div>
+
+                <div class="mode-selection">
+                    <label class="mode-card">
+                        <input type="radio" name="mode" value="video" checked>
+                        <div class="mode-card-content">
+                            <i class="fa-solid fa-video mode-icon"></i>
+                            <span class="mode-title">Vídeo Completo</span>
+                            <span class="mode-desc">MP4 (H.264 + AAC)</span>
+                        </div>
+                    </label>
+
+                    <label class="mode-card">
+                        <input type="radio" name="mode" value="audio">
+                        <div class="mode-card-content">
+                            <i class="fa-solid fa-music mode-icon"></i>
+                            <span class="mode-title">Apenas Áudio</span>
+                            <span class="mode-desc">Converter em MP3</span>
+                        </div>
+                    </label>
+                </div>
+
+                <button type="submit" id="submit-btn" class="submit-btn">
+                    <span id="btn-text">
+                        <i class="fa-solid fa-cloud-arrow-down"></i> Iniciar Download
+                    </span>
+                </button>
+            </form>
+
+            <!-- Área de Status e Progresso -->
+            <div id="status-card" class="status-card hidden">
+                <div class="status-header">
+                    <div class="status-info">
+                        <div id="status-spinner" class="spinner"></div>
+                        <span id="status-message">Processando link...</span>
+                    </div>
+                    <button id="cancel-btn" class="cancel-btn hidden"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="progress-bar-container">
+                    <div id="progress-bar" class="progress-bar"></div>
+                </div>
+                <p class="status-alert"><i class="fa-solid fa-triangle-exclamation"></i> Vídeos longos podem demorar um pouco para serem fundidos e convertidos.</p>
+            </div>
+        </main>
+
+        <section class="info-section">
+            <h2 class="section-title"><i class="fa-solid fa-circle-check"></i> Plataformas Suportadas</h2>
+            <div class="platforms-grid">
+                <div class="platform-item"><i class="fa-brands fa-youtube platform-logo yt"></i> YouTube</div>
+                <div class="platform-item"><i class="fa-brands fa-tiktok platform-logo tiktok"></i> TikTok</div>
+                <div class="platform-item"><i class="fa-brands fa-instagram platform-logo insta"></i> Instagram</div>
+                <div class="platform-item"><i class="fa-brands fa-facebook platform-logo fb"></i> Facebook</div>
+            </div>
+        </section>
+
+        <footer class="app-footer">
+            <p>&copy; 2026 Ministério Voz da Cura. Todos os direitos reservados.</p>
+        </footer>
+    </div>
+
+    <!-- Script principal -->
+    <script src="app.js"></script>
+</body>
+</html>
