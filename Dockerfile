@@ -14,6 +14,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copia o codigo da aplicacao
 COPY main.py .
 COPY static/ ./static/
+COPY cookies.txt .
 
 EXPOSE 8000
 
