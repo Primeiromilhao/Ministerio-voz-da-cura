@@ -17,17 +17,6 @@ DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads_temp")
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 os.makedirs(os.path.join(BASE_DIR, "static"), exist_ok=True)
 
-FFMPEG_SEARCH_PATHS = [
-    r"C:\Users\Utilizador\BaixadorUniversal",
-    r"C:\ffmpeg\bin",
-]
-
-def get_ffmpeg_location():
-    for path in FFMPEG_SEARCH_PATHS:
-        if os.path.exists(path):
-            return path
-    return None
-
 def clean_file(filepath: str):
     try:
         if filepath and os.path.exists(filepath):
@@ -44,7 +33,6 @@ def clean_files(filepath: str, cookies_path: str = None):
 def run_download(url: str, mode: str, cookies_path: str = None) -> str:
     unique_id = str(uuid.uuid4())[:8]
     outtmpl = os.path.join(DOWNLOAD_DIR, f"{unique_id}_%(title)s.%(ext)s")
-    ffmpeg_loc = get_ffmpeg_location()
     is_youtube = "youtube.com" in url or "youtu.be" in url
 
     if mode == "audio":
@@ -66,29 +54,21 @@ def run_download(url: str, mode: str, cookies_path: str = None) -> str:
             'merge_output_format': 'mp4',
         }
 
-    ydl_opts['http_headers'] = {
-        'User-Agent': 'com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip',
-        'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-    }
-
     if is_youtube:
         ydl_opts['extractor_args'] = {
             'youtube': {
-                'player_client': ['android', 'web'],
+                'player_client': ['ios', 'android'],
             }
         }
-        ydl_opts['sleep_interval'] = 1
-        ydl_opts['max_sleep_interval'] = 3
+        ydl_opts['http_headers'] = {
+            'User-Agent': 'com.google.ios.youtube/19.09.3 (iPhone14,3; U; CPU iOS 15_6 like Mac OS X)',
+        }
 
-    if ffmpeg_loc:
-        ydl_opts['ffmpeg_location'] = ffmpeg_loc
-        logger.info(f"Usando FFmpeg local em: {ffmpeg_loc}")
-
-    if cookies_path:
+    if cookies_path and os.path.exists(cookies_path):
         ydl_opts['cookiefile'] = cookies_path
         logger.info(f"Usando arquivo de cookies: {cookies_path}")
 
-    logger.info(f"Iniciando download para url: {url} em modo: {mode}")
+    logger.info(f"Iniciando download: {url} modo: {mode}")
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
@@ -103,7 +83,8 @@ def run_download(url: str, mode: str, cookies_path: str = None) -> str:
             return filename
     except Exception as e:
         error_msg = str(e)
-        if is_youtube and ("Sign in to confirm" in error_msg or "bot" in error_msg.lower()):
+        logger.error(f"Erro yt-dlp: {error_msg}")
+        if is_youtube and ("Sign in" in error_msg or "bot" in error_msg.lower() or "confirm" in error_msg.lower()):
             raise Exception(
                 "⚠️ O YouTube bloqueou este download porque detectou um acesso automatizado. "
                 "Para resolver, abra as 'Configurações Avançadas' e envie um arquivo cookies.txt "
@@ -119,7 +100,7 @@ async def api_download(
     cookies: UploadFile = File(None)
 ):
     if mode not in ["video", "audio"]:
-        raise HTTPException(status_code=400, detail="Modo inválido. Escolha 'video' ou 'audio'.")
+        raise HTTPException(status_code=400, detail="Modo inválido.")
 
     cookies_path = None
     if cookies and cookies.filename:
@@ -130,11 +111,11 @@ async def api_download(
             if content:
                 with open(cookies_path, "wb") as f:
                     f.write(content)
-                logger.info(f"Arquivo de cookies salvo: {cookies_path}")
+                logger.info(f"Cookies guardados: {cookies_path}")
             else:
                 cookies_path = None
         except Exception as e:
-            logger.error(f"Erro ao salvar cookies: {e}")
+            logger.error(f"Erro ao guardar cookies: {e}")
             cookies_path = None
 
     try:
@@ -142,10 +123,10 @@ async def api_download(
         if not os.path.exists(filepath):
             if cookies_path:
                 clean_file(cookies_path)
-            raise HTTPException(status_code=500, detail="Erro ao localizar o arquivo baixado.")
+            raise HTTPException(status_code=500, detail="Arquivo não encontrado após download.")
 
         file_size_mb = os.path.getsize(filepath) / (1024 * 1024)
-        logger.info(f"Download concluído. Tamanho: {file_size_mb:.2f} MB")
+        logger.info(f"Download OK. Tamanho: {file_size_mb:.2f} MB")
 
         display_name = os.path.basename(filepath)
         if "_" in display_name:
