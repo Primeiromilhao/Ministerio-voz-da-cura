@@ -224,6 +224,25 @@ async def download_compat(
     effective_mode = mode if mode else ("audio" if format == "mp3" else "video")
     return await api_download(url=url, mode=effective_mode, cookies=cookies)
 
+@app.get("/debug")
+async def debug():
+    import shutil
+    deno_path = get_deno_path()
+    ffmpeg_path = shutil.which("ffmpeg")
+    cookies_path = get_cookies_path()
+    cookies_exists = os.path.exists(cookies_path) if cookies_path else False
+    cookies_size = os.path.getsize(cookies_path) if cookies_exists else 0
+    return {
+        "deno_path": deno_path,
+        "ffmpeg_path": ffmpeg_path,
+        "cookies_path": cookies_path,
+        "cookies_exists": cookies_exists,
+        "cookies_size": cookies_size,
+        "temp_dir_exists": os.path.exists(TEMP_DIR),
+        "download_dir_exists": os.path.exists(DOWNLOAD_DIR),
+        "user": os.getlogin() if hasattr(os, 'getlogin') else os.environ.get("USER", "unknown")
+    }
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
