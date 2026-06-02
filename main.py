@@ -14,12 +14,39 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Baixador Ministerio Voz da Cura")
 
-DOWNLOAD_DIR = "/app/downloads"
-TEMP_DIR = "/app/downloads_temp"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+if os.path.exists("/app"):
+    DOWNLOAD_DIR = "/app/downloads"
+    TEMP_DIR = "/app/downloads_temp"
+    STATIC_DIR = "/app/static"
+else:
+    DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads")
+    TEMP_DIR = os.path.join(BASE_DIR, "downloads_temp")
+    STATIC_DIR = os.path.join(BASE_DIR, "static")
+
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 os.makedirs(TEMP_DIR, exist_ok=True)
 
-app.mount("/static", StaticFiles(directory="/app/static"), name="static")
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+def get_deno_path():
+    """Encontra o Deno para usar como JS runtime do yt-dlp."""
+    deno_paths = [
+        os.path.expanduser("~/.deno/bin/deno"),       # Linux/Docker
+        os.path.expanduser("~/.deno/bin/deno.exe"),    # Windows
+        r"C:\Users\Utilizador\.deno\bin\deno.exe",     # Windows específico
+        "/root/.deno/bin/deno",                         # Docker root
+    ]
+    for p in deno_paths:
+        if os.path.exists(p):
+            return p
+    # Tenta encontrar no PATH do sistema
+    import shutil
+    deno_in_path = shutil.which("deno")
+    if deno_in_path:
+        return deno_in_path
+    return None
 
 def get_cookies_path(uploaded_cookies=None):
     if uploaded_cookies and os.path.exists(uploaded_cookies):
@@ -46,6 +73,17 @@ def get_cookies_path(uploaded_cookies=None):
         except Exception as e:
             logger.warning(f"Erro ao copiar repo cookies: {e}")
     
+    return None
+
+FFMPEG_SEARCH_PATHS = [
+    r"C:\Users\Utilizador\BaixadorUniversal",
+    r"C:\ffmpeg\bin",
+]
+
+def get_ffmpeg_location():
+    for path in FFMPEG_SEARCH_PATHS:
+        if os.path.exists(path):
+            return path
     return None
 
 def build_ydl_opts(output_path, format_type, cookies_path=None):
@@ -75,8 +113,26 @@ def build_ydl_opts(output_path, format_type, cookies_path=None):
         "retries": 3,
         "fragment_retries": 3,
         "postprocessors": postprocessors,
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+        },
+        "remote_components": ["ejs:github"],
     }
     
+    # Configura o Deno como JS runtime
+    deno_path = get_deno_path()
+    if deno_path:
+        opts["js_runtimes"] = {"deno": {"path": deno_path}}
+        logger.info(f"Usando Deno JS runtime em: {deno_path}")
+    else:
+        logger.warning("Deno nao encontrado. Downloads do YouTube podem falhar.")
+        
+    ffmpeg_loc = get_ffmpeg_location()
+    if ffmpeg_loc:
+        opts["ffmpeg_location"] = ffmpeg_loc
+        logger.info(f"Usando FFmpeg local em: {ffmpeg_loc}")
+        
     if cookies_path and os.path.exists(cookies_path):
         opts["cookiefile"] = cookies_path
         logger.info(f"Cookies ativos: {cookies_path}")
@@ -112,15 +168,15 @@ async def do_download(url: str, format_type: str, job_id: str, cookies_path: str
 
 @app.get("/")
 async def index():
-    return FileResponse("/app/static/index.html")
+    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
 
 @app.get("/style.css")
 async def style():
-    return FileResponse("/app/static/style.css")
+    return FileResponse(os.path.join(STATIC_DIR, "style.css"))
 
 @app.get("/app.js")
 async def appjs():
-    return FileResponse("/app/static/app.js")
+    return FileResponse(os.path.join(STATIC_DIR, "app.js"))
 
 @app.post("/api/download")
 async def api_download(

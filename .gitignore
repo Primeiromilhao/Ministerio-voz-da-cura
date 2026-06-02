@@ -1,5 +1,6 @@
 # Ignorar pasta temporária de downloads do servidor
 downloads_temp/
+downloads/
 
 # Ignorar caches do Python
 __pycache__/
