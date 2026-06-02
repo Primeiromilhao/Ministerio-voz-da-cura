@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Baixador Ministério Voz da Cura")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads_temp")
+DEFAULT_COOKIES = os.path.join(BASE_DIR, "cookies.txt")
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 os.makedirs(os.path.join(BASE_DIR, "static"), exist_ok=True)
 
@@ -39,6 +40,12 @@ def find_downloaded_file(session_id: str):
 def run_download(url: str, mode: str, session_id: str, cookie_path: str = None):
     output_template = os.path.join(DOWNLOAD_DIR, f"{session_id}.%(ext)s")
 
+    # Use o cookies.txt do repo se nenhum foi enviado pelo utilizador
+    effective_cookie = cookie_path
+    if not effective_cookie and os.path.exists(DEFAULT_COOKIES):
+        effective_cookie = DEFAULT_COOKIES
+        logger.info("Usando cookies.txt do repositorio")
+
     http_headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
         "Accept-Language": "en-US,en;q=0.9",
@@ -61,8 +68,8 @@ def run_download(url: str, mode: str, session_id: str, cookie_path: str = None):
         "sleep_interval_requests": 1,
     }
 
-    if cookie_path:
-        base_opts["cookiefile"] = cookie_path
+    if effective_cookie:
+        base_opts["cookiefile"] = effective_cookie
 
     if mode == "audio":
         base_opts.update({
@@ -79,13 +86,12 @@ def run_download(url: str, mode: str, session_id: str, cookie_path: str = None):
             "merge_output_format": "mp4",
         })
 
-    # Try multiple client strategies in order
     client_strategies = [
         {"extractor_args": {"youtube": {"player_client": ["tv_embedded"]}}},
         {"extractor_args": {"youtube": {"player_client": ["ios"]}}},
         {"extractor_args": {"youtube": {"player_client": ["web_embedded"]}}},
         {"extractor_args": {"youtube": {"player_client": ["mweb"]}}},
-        {},  # default client as last resort
+        {},
     ]
 
     last_error = None
@@ -94,22 +100,20 @@ def run_download(url: str, mode: str, session_id: str, cookie_path: str = None):
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 ydl.download([url])
-            # Check if file was actually created
             result = find_downloaded_file(session_id)
             if result:
-                logger.info(f"Download OK with strategy: {strategy}")
+                logger.info(f"Download OK com strategy: {strategy}")
                 return result
         except yt_dlp.utils.DownloadError as e:
             last_error = str(e)
-            logger.warning(f"Strategy {strategy} failed: {last_error[:200]}")
-            # Clean up any partial files
+            logger.warning(f"Strategy {strategy} falhou: {last_error[:200]}")
             for f in glob.glob(os.path.join(DOWNLOAD_DIR, f"{session_id}*")):
                 try: os.remove(f)
                 except: pass
             continue
         except Exception as e:
             last_error = str(e)
-            logger.error(f"Unexpected error with strategy {strategy}: {last_error}")
+            logger.error(f"Erro inesperado com strategy {strategy}: {last_error}")
             continue
 
     raise Exception(last_error or "Todos os clientes falharam ao baixar o vídeo.")
@@ -142,7 +146,7 @@ async def api_download(
         error_msg = str(e)
         if cookie_path:
             background_tasks.add_task(clean_files, cookie_path)
-        logger.error(f"Download failed: {error_msg}")
+        logger.error(f"Download falhou: {error_msg}")
 
         detail = "O download falhou. Verifique o link e tente novamente."
         if "bot" in error_msg.lower() or "sign in" in error_msg.lower() or "confirm" in error_msg.lower():
