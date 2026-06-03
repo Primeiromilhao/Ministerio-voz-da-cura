@@ -256,6 +256,46 @@ async def debug():
             "error_message": str(e),
             "traceback": traceback.format_exc()
         }
+@app.get("/test")
+async def test_download_endpoint(url: str):
+    import io
+    import sys
+    from fastapi.responses import PlainTextResponse
+    
+    # Custom logger for yt-dlp to capture logs
+    class CaptureLogger:
+        def __init__(self):
+            self.lines = []
+        def debug(self, msg):
+            self.lines.append(f"DEBUG: {msg}")
+        def info(self, msg):
+            self.lines.append(f"INFO: {msg}")
+        def warning(self, msg):
+            self.lines.append(f"WARNING: {msg}")
+        def error(self, msg):
+            self.lines.append(f"ERROR: {msg}")
+            
+    cap_logger = CaptureLogger()
+    
+    job_id = "test_run"
+    output_template = os.path.join(DOWNLOAD_DIR, f"{job_id}.%(ext)s")
+    cookies_path = get_cookies_path()
+    opts = build_ydl_opts(output_template, "video", cookies_path)
+    
+    # Enable verbose and custom logger
+    opts['verbose'] = True
+    opts['logger'] = cap_logger
+    opts['quiet'] = False
+    
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.download([url])
+        status = "success"
+    except Exception as e:
+        status = f"error: {str(e)}"
+        
+    log_output = "\n".join(cap_logger.lines)
+    return PlainTextResponse(f"Status: {status}\n\nLogs:\n{log_output}")
 
 @app.get("/health")
 async def health():
