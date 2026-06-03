@@ -17,6 +17,7 @@ env/
 # Ignorar logs e arquivos locais
 *.log
 .env
+cookies.txt
 
 # Scripts utilitários de debug (não são parte da app)
 copy_edge_cookies.py

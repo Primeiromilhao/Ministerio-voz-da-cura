@@ -106,7 +106,7 @@ def build_ydl_opts(output_path, format_type, cookies_path=None):
         "no_warnings": False,
         "extractor_args": {
             "youtube": {
-                "player_client": ["ios", "android", "mweb"],
+                "player_client": ["tv_embedded", "ios", "android", "mweb"],
             }
         },
         "socket_timeout": 30,
