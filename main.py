@@ -17,8 +17,8 @@ app = FastAPI(title="Baixador Ministerio Voz da Cura")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 if os.path.exists("/app"):
-    DOWNLOAD_DIR = "/app/downloads"
-    TEMP_DIR = "/app/downloads_temp"
+    DOWNLOAD_DIR = "/tmp/downloads"
+    TEMP_DIR = "/tmp/downloads_temp"
     STATIC_DIR = "/app/static"
 else:
     DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads")
