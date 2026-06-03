@@ -21,8 +21,8 @@ if os.path.exists("/app"):
     TEMP_DIR = "/tmp/downloads_temp"
     STATIC_DIR = "/app/static"
 else:
-    DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads")
-    TEMP_DIR = os.path.join(BASE_DIR, "downloads_temp")
+    DOWNLOAD_DIR = os.path.join(BASE_DIR, "video")
+    TEMP_DIR = os.path.join(BASE_DIR, "video_temp")
     STATIC_DIR = os.path.join(BASE_DIR, "static")
 
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
@@ -141,7 +141,7 @@ def build_ydl_opts(output_path, format_type, cookies_path=None):
     return opts
 
 async def do_download(url: str, format_type: str, job_id: str, cookies_path: str = None):
-    output_template = os.path.join(DOWNLOAD_DIR, f"{job_id}.%(ext)s")
+    output_template = os.path.join(TEMP_DIR, f"{job_id}_%(title)s.%(ext)s")
     opts = build_ydl_opts(output_template, format_type, cookies_path)
     
     loop = asyncio.get_event_loop()
@@ -152,9 +152,22 @@ async def do_download(url: str, format_type: str, job_id: str, cookies_path: str
     
     try:
         await loop.run_in_executor(None, run_download)
-        files = glob.glob(os.path.join(DOWNLOAD_DIR, f"{job_id}.*"))
+        files = glob.glob(os.path.join(TEMP_DIR, f"{job_id}_*"))
         if files:
-            return files[0]
+            temp_file_path = files[0]
+            filename = os.path.basename(temp_file_path)
+            clean_filename = filename.split("_", 1)[1] if "_" in filename else filename
+            dest_file_path = os.path.join(DOWNLOAD_DIR, clean_filename)
+            
+            if os.path.exists(dest_file_path):
+                try:
+                    os.remove(dest_file_path)
+                except Exception as e:
+                    logger.warning(f"Nao foi possivel remover ficheiro existente {dest_file_path}: {e}")
+            
+            shutil.move(temp_file_path, dest_file_path)
+            logger.info(f"Ficheiro final salvo em: {dest_file_path}")
+            return dest_file_path
         return None
     except Exception as e:
         error_msg = str(e)
@@ -208,10 +221,14 @@ async def api_download(
         raise HTTPException(status_code=500, detail="Arquivo nao encontrado apos download.")
     
     filename = os.path.basename(file_path)
+    if "_" in filename:
+        display_name = filename.split("_", 1)[1]
+    else:
+        display_name = filename
     
     return FileResponse(
         path=file_path,
-        filename=filename,
+        filename=display_name,
         media_type="application/octet-stream"
     )
 
