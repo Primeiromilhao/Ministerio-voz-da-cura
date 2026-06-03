@@ -226,26 +226,36 @@ async def download_compat(
 
 @app.get("/debug")
 async def debug():
-    import shutil
-    deno_path = get_deno_path()
-    ffmpeg_path = shutil.which("ffmpeg")
-    cookies_path = get_cookies_path()
-    cookies_exists = os.path.exists(cookies_path) if cookies_path else False
-    cookies_size = os.path.getsize(cookies_path) if cookies_exists else 0
+    import traceback
     try:
-        user = os.getlogin()
-    except Exception:
-        user = os.environ.get("USER", "unknown")
-    return {
-        "deno_path": deno_path,
-        "ffmpeg_path": ffmpeg_path,
-        "cookies_path": cookies_path,
-        "cookies_exists": cookies_exists,
-        "cookies_size": cookies_size,
-        "temp_dir_exists": os.path.exists(TEMP_DIR),
-        "download_dir_exists": os.path.exists(DOWNLOAD_DIR),
-        "user": user
-    }
+        import shutil
+        deno_path = get_deno_path()
+        ffmpeg_path = shutil.which("ffmpeg")
+        cookies_path = get_cookies_path()
+        cookies_exists = os.path.exists(cookies_path) if cookies_path else False
+        cookies_size = os.path.getsize(cookies_path) if cookies_exists else 0
+        try:
+            user = os.getlogin()
+        except Exception:
+            user = os.environ.get("USER", "unknown")
+        return {
+            "status": "success",
+            "deno_path": deno_path,
+            "ffmpeg_path": ffmpeg_path,
+            "cookies_path": cookies_path,
+            "cookies_exists": cookies_exists,
+            "cookies_size": cookies_size,
+            "temp_dir_exists": os.path.exists(TEMP_DIR),
+            "download_dir_exists": os.path.exists(DOWNLOAD_DIR),
+            "user": user
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error_type": type(e).__name__,
+            "error_message": str(e),
+            "traceback": traceback.format_exc()
+        }
 
 @app.get("/health")
 async def health():
