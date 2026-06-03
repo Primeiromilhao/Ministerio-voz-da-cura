@@ -232,6 +232,10 @@ async def debug():
     cookies_path = get_cookies_path()
     cookies_exists = os.path.exists(cookies_path) if cookies_path else False
     cookies_size = os.path.getsize(cookies_path) if cookies_exists else 0
+    try:
+        user = os.getlogin()
+    except Exception:
+        user = os.environ.get("USER", "unknown")
     return {
         "deno_path": deno_path,
         "ffmpeg_path": ffmpeg_path,
@@ -240,7 +244,7 @@ async def debug():
         "cookies_size": cookies_size,
         "temp_dir_exists": os.path.exists(TEMP_DIR),
         "download_dir_exists": os.path.exists(DOWNLOAD_DIR),
-        "user": os.getlogin() if hasattr(os, 'getlogin') else os.environ.get("USER", "unknown")
+        "user": user
     }
 
 @app.get("/health")
