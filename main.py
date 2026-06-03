@@ -76,6 +76,7 @@ def get_cookies_path(uploaded_cookies=None):
     return None
 
 FFMPEG_SEARCH_PATHS = [
+    BASE_DIR,
     r"C:\Users\Utilizador\BaixadorUniversal",
     r"C:\ffmpeg\bin",
 ]
